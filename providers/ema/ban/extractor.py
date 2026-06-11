@@ -88,23 +88,18 @@ def _normalizar_visita(label: str) -> str:
 class EMABANExtractor:
 
     # Región de firma: (x%, y%, ancho%, alto%) relativo al tamaño de la página
-    # Ajustar si el área de firma cambia de posición
-    REGION_FIRMA = (0.05, 0.45, 0.40, 0.12)
+    # La firma aparece en el cuadrante inferior derecho del documento EMA
+    REGION_FIRMA = (0.48, 0.50, 0.48, 0.20)
 
     def _detectar_tipo(self, texto: str) -> Optional[str]:
-        m = re.search(r"Tipo\s+de\s+Entrega[:\s]+(\S+(?:\s+\S+)?)", texto, re.IGNORECASE)
+        m = re.search(r"Tipo\s+de\s+Entrega[:\s]+(.+)", texto, re.IGNORECASE)
         if m:
             valor = m.group(1).strip().lower()
             if "puerta" in valor:
                 return "bajo_puerta"
+            # EMA usa "Firmada" para bajo firma
             if "firma" in valor:
                 return "bajo_firma"
-        # fallback por presencia de texto
-        texto_lower = texto.lower()
-        if "bajo puerta" in texto_lower:
-            return "bajo_puerta"
-        if "bajo firma" in texto_lower:
-            return "bajo_firma"
         return None
 
     def _extraer_fecha_visita(self, texto: str, numero: int) -> VisitData:
@@ -172,11 +167,12 @@ class EMABANExtractor:
             fecha_emision_raw = emision_match.group(1)
 
         visita1 = self._extraer_fecha_visita(texto, 1)
-        visita2 = self._extraer_fecha_visita(texto, 2) if tipo == "bajo_puerta" else VisitData()
-
         visitas = [visita1]
-        if tipo == "bajo_puerta" and visita2.raw:
-            visitas.append(visita2)
+
+        if tipo == "bajo_puerta":
+            visita2 = self._extraer_fecha_visita(texto, 2)
+            if visita2.fecha or visita2.raw:
+                visitas.append(visita2)
 
         tipo_entrega_raw = _valor_despues_de(texto, "Tipo de Entrega")
 

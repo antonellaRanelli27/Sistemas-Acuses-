@@ -83,9 +83,7 @@ class EMABANValidator:
         if not e.dni:
             errores.append(ErrorValidacion("DNI", "No se encontró el DNI del firmante"))
         if not e.nombre:
-            errores.append(ErrorValidacion("Nombre", "No se encontró el nombre del firmante"))
-        if not e.apellido:
-            errores.append(ErrorValidacion("Apellido", "No se encontró el apellido del firmante"))
+            errores.append(ErrorValidacion("Aclaración", "No se encontró el nombre del firmante (campo Aclaración vacío)"))
 
         if not e.tipo_vinculo:
             errores.append(ErrorValidacion("Tipo de vínculo", "No se encontró el tipo de vínculo"))
