@@ -18,10 +18,11 @@ def _validar_visita_posterior(visita, fecha_emision: date, etiqueta: str) -> Lis
     if visita.fecha is None:
         errores.append(ErrorValidacion(etiqueta, "No se pudo leer la fecha de la visita"))
         return errores
-    if visita.fecha <= fecha_emision:
+    # Se acepta visita el mismo día de emisión o posterior
+    if visita.fecha < fecha_emision:
         errores.append(ErrorValidacion(
             etiqueta,
-            f"La visita ({visita.fecha:%d/%m/%Y}) debe ser posterior a la fecha de emisión ({fecha_emision:%d/%m/%Y})"
+            f"La visita ({visita.fecha:%d/%m/%Y}) es anterior a la fecha de emisión ({fecha_emision:%d/%m/%Y})"
         ))
     if not _es_dia_valido(visita.fecha):
         errores.append(ErrorValidacion(
@@ -82,8 +83,10 @@ class EMABANValidator:
 
         if not e.dni:
             errores.append(ErrorValidacion("DNI", "No se encontró el DNI del firmante"))
-        if not e.nombre:
-            errores.append(ErrorValidacion("Aclaración", "No se encontró el nombre del firmante (campo Aclaración vacío)"))
+        if not e.nombre and not e.apellido:
+            errores.append(ErrorValidacion("Aclaración", "No se encontró nombre y apellido del firmante"))
+        elif not e.nombre or not e.apellido:
+            errores.append(ErrorValidacion("Aclaración", "El campo Aclaración debe contener nombre y apellido (se encontró solo un dato)"))
 
         if not e.tipo_vinculo:
             errores.append(ErrorValidacion("Tipo de vínculo", "No se encontró el tipo de vínculo"))
