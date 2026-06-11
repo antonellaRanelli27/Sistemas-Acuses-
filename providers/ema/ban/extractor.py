@@ -11,11 +11,15 @@ MESES = {
 }
 
 VINCULOS_CONOCIDOS = [
-    "Titular", "Familiar", "Cónyuge", "Conyuge",
-    "Hijo", "Hija", "Padre", "Madre",
-    "Esposo", "Esposa", "Vecino", "Vecina",
-    "Inquilino", "Inquilina",
+    "Titular", "Hijo", "Hija", "Esposo", "Esposa",
+    "Padre", "Madre", "Cónyuge", "Familiar",
+    "Vecino", "Vecina", "Inquilino", "Inquilina",
 ]
+
+VINCULOS_VALIDOS = {
+    "titular", "hijo", "hija", "esposo", "esposa",
+    "padre", "madre", "cónyuge", "conyuge", "familiar",
+}
 
 
 def _normalizar_vinculo(texto: str) -> str:

@@ -1,6 +1,7 @@
 from datetime import date
 from typing import List
 from core.models import ExtractionResult, ErrorValidacion
+from providers.ema.ban.extractor import VINCULOS_VALIDOS
 
 DIAS_NO_VALIDOS = {5: "sábado", 6: "domingo"}
 
@@ -90,10 +91,10 @@ class EMABANValidator:
 
         if not e.tipo_vinculo:
             errores.append(ErrorValidacion("Tipo de vínculo", "No se encontró el tipo de vínculo"))
-        elif "vecino" in e.tipo_vinculo.lower():
+        elif e.tipo_vinculo.lower().replace("ó", "o") not in VINCULOS_VALIDOS:
             errores.append(ErrorValidacion(
                 "Tipo de vínculo",
-                f"El vínculo 'vecino' no corresponde (se encontró: '{e.tipo_vinculo}')"
+                f"Vínculo no permitido: '{e.tipo_vinculo}'. Permitidos: {', '.join(sorted(VINCULOS_VALIDOS))}"
             ))
 
         if len(e.caracteristicas_casa) < 3:
