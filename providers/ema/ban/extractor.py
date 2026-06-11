@@ -13,12 +13,14 @@ MESES = {
 VINCULOS_CONOCIDOS = [
     "Titular", "Hijo", "Hija", "Esposo", "Esposa",
     "Padre", "Madre", "Cónyuge", "Familiar",
+    "Hermano", "Hermana",
     "Vecino", "Vecina", "Inquilino", "Inquilina",
 ]
 
 VINCULOS_VALIDOS = {
     "titular", "hijo", "hija", "esposo", "esposa",
     "padre", "madre", "cónyuge", "conyuge", "familiar",
+    "hermano", "hermana",
 }
 
 
