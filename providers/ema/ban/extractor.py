@@ -1,5 +1,6 @@
 import re
 from datetime import date
+from difflib import get_close_matches
 from typing import Optional, List
 from core.models import ExtractionResult, VisitData
 
@@ -8,6 +9,24 @@ MESES = {
     "mayo": 5, "junio": 6, "julio": 7, "agosto": 8,
     "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12,
 }
+
+VINCULOS_CONOCIDOS = [
+    "Titular", "Familiar", "Cónyuge", "Conyuge",
+    "Hijo", "Hija", "Padre", "Madre",
+    "Esposo", "Esposa", "Vecino", "Vecina",
+    "Inquilino", "Inquilina",
+]
+
+
+def _normalizar_vinculo(texto: str) -> str:
+    """Corrige errores OCR en el campo vínculo comparando con valores conocidos."""
+    if not texto:
+        return texto
+    conocidos_lower = [v.lower() for v in VINCULOS_CONOCIDOS]
+    matches = get_close_matches(texto.lower(), conocidos_lower, n=1, cutoff=0.4)
+    if matches:
+        return VINCULOS_CONOCIDOS[conocidos_lower.index(matches[0])]
+    return texto
 
 # ─────────────────────────────────────────────────────────────────
 # Regiones del documento EMA (x1%, y1%, x2%, y2%)
@@ -140,7 +159,7 @@ class EMABANExtractor:
                         if (v and not re.search(r"\d", v)
                                 and not any(re.search(p, v, re.IGNORECASE) for p in excluir)
                                 and re.match(r"^[A-ZÁÉÍÓÚÑa-záéíóúñ ]+$", v)):
-                            vinculo = v
+                            vinculo = _normalizar_vinculo(v)
                             break
                     break
 
