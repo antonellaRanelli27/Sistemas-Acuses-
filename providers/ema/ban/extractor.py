@@ -9,18 +9,29 @@ MESES = {
     "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12,
 }
 
+# ─────────────────────────────────────────────────────────────────
+# Regiones del documento EMA (x1%, y1%, x2%, y2%)
+#
+# Layout real confirmado con OCR:
+#   0–28%   → Encabezado completo + fila de headers VISITA + fila de fechas
+#   28–52%  → Cuerpo de visitas (hora, distribuidor) + DNI/nombre/vínculo (bajo firma)
+#   52–78%  → Fotos, mapa (no se usa para extracción de texto)
+#
+# Columna izq (0–50%): 1ª VISITA  |  Columna der (50–100%): 2ª VISITA
+# ─────────────────────────────────────────────────────────────────
+REG_HEADER   = (0.00, 0.00, 1.00, 0.28)   # Encabezado + fila de fechas de visita
+REG_VISITA_1 = (0.00, 0.25, 0.50, 0.50)   # Izq: hora, distribuidor, DNI, nombre, vínculo
+REG_VISITA_2 = (0.50, 0.25, 1.00, 0.50)   # Der: hora, distribuidor, tipo entrega, referencias
+REG_FIRMA_IMG = (0.48, 0.55, 1.00, 0.78)  # Imagen de la firma digitalizada
+
 
 def _parsear_fecha(texto: str) -> Optional[date]:
-    # YYYY-MM-DD (formato del documento EMA)
     m = re.search(r"(\d{4})-(\d{2})-(\d{2})", texto)
     if m:
-        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
         try:
-            return date(y, mo, d)
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
         except ValueError:
             pass
-
-    # DD/MM/YYYY o DD-MM-YYYY
     m = re.search(r"(\d{1,2})[/\.](\d{1,2})[/\.](\d{2,4})", texto)
     if m:
         d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
@@ -30,175 +41,180 @@ def _parsear_fecha(texto: str) -> Optional[date]:
             return date(y, mo, d)
         except ValueError:
             pass
-
-    # DD de MMMM de YYYY
     m = re.search(r"(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})", texto, re.IGNORECASE)
     if m:
-        d, mo_str, y = int(m.group(1)), m.group(2).lower(), int(m.group(3))
-        mo = MESES.get(mo_str)
+        mo = MESES.get(m.group(2).lower())
         if mo:
             try:
-                return date(y, mo, d)
+                return date(int(m.group(3)), mo, int(m.group(1)))
             except ValueError:
                 pass
-
     return None
 
 
-def _valor_despues_de(texto: str, etiqueta: str) -> str:
-    """
-    Busca una etiqueta y devuelve el valor en la misma línea (etiqueta: valor)
-    o en la línea siguiente si la etiqueta está sola.
-    """
-    patron_misma_linea = re.compile(
-        re.escape(etiqueta) + r"[:\s]+(.+)", re.IGNORECASE
-    )
-    m = patron_misma_linea.search(texto)
-    if m:
-        valor = m.group(1).strip()
-        if valor:
-            return valor
-
-    # Busca en la línea siguiente
-    lineas = texto.splitlines()
-    for i, linea in enumerate(lineas):
-        if re.search(re.escape(etiqueta), linea, re.IGNORECASE):
-            for j in range(i + 1, min(i + 4, len(lineas))):
-                siguiente = lineas[j].strip()
-                if siguiente:
-                    return siguiente
-    return ""
+def _extraer_referencias(texto: str) -> List[str]:
+    refs = []
+    for n in ["1", "2", "3"]:
+        m = re.search(
+            rf"\b{n}\s*[°ª*\"'\?\.]\s*REFERENCIA\s*[:\.\s]+(.+)",
+            texto, re.IGNORECASE,
+        )
+        if m:
+            refs.append(m.group(1).strip().rstrip("."))
+    return refs
 
 
-def _extraer_seccion(texto: str, inicio: str, fin: str) -> str:
-    """Extrae el bloque de texto entre dos patrones."""
-    patron = re.compile(
-        r"(?:" + inicio + r")(.*?)(?:" + fin + r"|$)",
-        re.IGNORECASE | re.DOTALL,
-    )
-    m = patron.search(texto)
-    return m.group(1).strip() if m else ""
-
-
-def _normalizar_visita(label: str) -> str:
-    """Normaliza variaciones OCR de 1ª/2ª VISITA."""
-    return label.replace("1ª", "1").replace("2ª", "2").replace("1a", "1").replace("2a", "2")
+EXCLUIR_VISITA = [
+    r"Descripci[oó]n\s+NO",
+    r"Se\s+mud[oó]",
+    r"Rehusado",
+    r"Otros",
+    r"^\d{1,2}:\d{2}",     # hora
+    r"REFERENCIA",
+    r"^[-–]+$",
+]
 
 
 class EMABANExtractor:
 
-    # Región de firma: (x%, y%, ancho%, alto%) relativo al tamaño de la página
-    # La firma aparece en el cuadrante inferior derecho del documento EMA
-    REGION_FIRMA = (0.48, 0.50, 0.48, 0.20)
-
-    def _detectar_tipo(self, texto: str) -> Optional[str]:
-        m = re.search(r"Tipo\s+de\s+Entrega[:\s]+(.+)", texto, re.IGNORECASE)
-        if m:
-            valor = m.group(1).strip().lower()
-            if "puerta" in valor:
-                return "bajo_puerta"
-            # EMA usa "Firmada" para bajo firma
-            if "firma" in valor:
-                return "bajo_firma"
+    def _detectar_tipo(self, txt_visita2: str) -> Optional[str]:
+        t = txt_visita2.lower()
+        if re.search(r"bajo\s+puer", t):
+            return "bajo_puerta"
+        if re.search(r"f[iu]rmad", t):
+            return "bajo_firma"
         return None
 
-    def _extraer_fecha_visita(self, texto: str, numero: int) -> VisitData:
+    def _fechas_de_visitas(self, txt_header: str) -> List[Optional[date]]:
         """
-        Extrae la fecha de la sección Nª VISITA.
-        Soporta variaciones OCR: 1ª, 1a, 1°, 1ra.
+        Busca TODAS las ocurrencias de 'VISITA' en el header y extrae
+        la primera fecha que aparece después de cada una.
         """
-        patrones_inicio = [
-            rf"{numero}[aª°]?\s*VISITA",
-            rf"{numero}ra?\s*VISITA",
-        ]
-        siguiente_seccion = [
-            r"[2-9][aª°]?\s*VISITA",
-            r"D\.?N\.?I",
-            r"Referencias",
-            r"Descripci",
-        ]
-        fin = "|".join(siguiente_seccion)
+        lineas = txt_header.splitlines()
+        fechas = []
+        for i, linea in enumerate(lineas):
+            if re.search(r"\bVISITA\b", linea, re.IGNORECASE):
+                for j in range(i + 1, min(i + 6, len(lineas))):
+                    f = _parsear_fecha(lineas[j])
+                    if f:
+                        fechas.append(f)
+                        break
+        return fechas
 
-        seccion = ""
-        for pat in patrones_inicio:
-            seccion = _extraer_seccion(texto, pat, fin)
-            if seccion:
+    def _distribuidor(self, txt_visita1: str) -> str:
+        m = re.search(r"\d{4,}\s*[-–]\s*[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑA-Za-z ]+", txt_visita1)
+        return m.group(0).strip() if m else ""
+
+    def _datos_firmante(self, txt_visita1: str):
+        """
+        Extrae DNI, nombre, apellido y vínculo del área izquierda de la visita.
+        Orden esperado en el doc EMA: Hora → Distribuidor → [DNI label] → DNI nro
+        → Aclaración (nombre) → Vínculo.
+        """
+        dni, nombre, apellido, vinculo = "", "", "", ""
+        lineas = [l.strip() for l in txt_visita1.splitlines()]
+        excluir = EXCLUIR_VISITA + [r"\d{4,}\s*[-–]", r"^\d{4}-\d{2}-\d{2}$"]
+
+        # DNI: primera línea que sea exactamente 7-8 dígitos
+        dni_idx = -1
+        for i, l in enumerate(lineas):
+            if re.fullmatch(r"\d{7,8}", l):
+                dni = l
+                dni_idx = i
                 break
 
-        if not seccion:
-            return VisitData()
+        if dni_idx >= 0:
+            # Nombre: primera línea de solo letras y espacios después del DNI
+            for j in range(dni_idx + 1, min(dni_idx + 6, len(lineas))):
+                l = lineas[j]
+                if (l
+                        and not re.search(r"\d", l)
+                        and not any(re.search(p, l, re.IGNORECASE) for p in excluir)
+                        and re.match(r"^[A-ZÁÉÍÓÚÑa-záéíóúñ ]+$", l)):
+                    partes = l.split(maxsplit=1)
+                    nombre = partes[0]
+                    apellido = partes[1] if len(partes) > 1 else ""
+                    # Vínculo: siguiente línea de texto válida
+                    for k in range(j + 1, min(j + 4, len(lineas))):
+                        v = lineas[k]
+                        if (v and not re.search(r"\d", v)
+                                and not any(re.search(p, v, re.IGNORECASE) for p in excluir)
+                                and re.match(r"^[A-ZÁÉÍÓÚÑa-záéíóúñ ]+$", v)):
+                            vinculo = v
+                            break
+                    break
 
-        raw = _valor_despues_de(seccion, "Fecha")
-        return VisitData(fecha=_parsear_fecha(raw or seccion), raw=raw)
-
-    def _extraer_distribuidor(self, texto: str) -> str:
-        """Toma el distribuidor de la 2ª visita, o de la 1ª si no hay 2ª."""
-        for numero in [2, 1]:
-            patrones = [rf"{numero}[aª°]?\s*VISITA", rf"{numero}ra?\s*VISITA"]
-            fin = r"D\.?N\.?I|Referencias|Descripci|$"
-            for pat in patrones:
-                seccion = _extraer_seccion(texto, pat, fin)
-                if seccion:
-                    valor = _valor_despues_de(seccion, "Distribuidor")
-                    if valor:
-                        return valor
-        return _valor_despues_de(texto, "Distribuidor")
-
-    def _extraer_referencias(self, texto: str) -> List[str]:
-        refs = []
-        for n in ["1", "2", "3"]:
-            # Busca "1° REFERENCIA: valor" o "1ª REFERENCIA: valor"
-            m = re.search(
-                rf"{n}[°ª]?\s*REFERENCIA[:\s]+(.+)",
-                texto,
-                re.IGNORECASE,
-            )
-            if m:
-                refs.append(m.group(1).strip())
-        return refs
+        return dni, nombre, apellido, vinculo
 
     def extraer(self, texto: str, ruta_pdf: str, pdf_processor=None) -> ExtractionResult:
-        tipo = self._detectar_tipo(texto)
+        def reg(region):
+            if pdf_processor:
+                return pdf_processor.extraer_texto_region(ruta_pdf, region)
+            return texto
 
-        fecha_emision_raw = _valor_despues_de(texto, "Emisión")
-        # Evitar que tome "Fecha vencimiento" como emisión
-        emision_match = re.search(r"Emisi[oó]n[:\s]+(\d{4}-\d{2}-\d{2}|\d{1,2}[/\.]\d{1,2}[/\.]\d{2,4})", texto, re.IGNORECASE)
-        if emision_match:
-            fecha_emision_raw = emision_match.group(1)
+        txt_header  = reg(REG_HEADER)
+        txt_visita1 = reg(REG_VISITA_1)
+        txt_visita2 = reg(REG_VISITA_2)
 
-        visita1 = self._extraer_fecha_visita(texto, 1)
+        # Tipo de documento (desde columna derecha donde aparece Tipo de Entrega)
+        tipo = self._detectar_tipo(txt_visita2)
+
+        # Fecha de emisión
+        m = re.search(r"Emisi[oó]n[:\s]+(\d{4}-\d{2}-\d{2})", txt_header, re.IGNORECASE)
+        fecha_emision = _parsear_fecha(m.group(1)) if m else None
+
+        # Fechas de visitas (línea posterior al encabezado VISITA en el header)
+        fechas_visitas = self._fechas_de_visitas(txt_header)
+
+        visita1 = VisitData(
+            fecha=fechas_visitas[0] if len(fechas_visitas) > 0 else None,
+            raw=str(fechas_visitas[0]) if len(fechas_visitas) > 0 else "",
+        )
         visitas = [visita1]
 
-        if tipo == "bajo_puerta":
-            visita2 = self._extraer_fecha_visita(texto, 2)
-            if visita2.fecha or visita2.raw:
-                visitas.append(visita2)
+        if tipo == "bajo_puerta" and len(fechas_visitas) > 1:
+            visitas.append(VisitData(
+                fecha=fechas_visitas[1],
+                raw=str(fechas_visitas[1]),
+            ))
 
-        tipo_entrega_raw = _valor_despues_de(texto, "Tipo de Entrega")
+        # Distribuidor
+        distribuidor = self._distribuidor(txt_visita1)
 
+        # Tipo de entrega (texto)
+        tipo_entrega = ""
+        m = re.search(r"Tipo\s+de\s+Entrega\s*\n(.+)", txt_visita2, re.IGNORECASE)
+        if m:
+            tipo_entrega = m.group(1).strip()
+        else:
+            # Buscar "Bajo Puerta" o "Firmada" directo en el texto
+            m2 = re.search(r"(Bajo\s+Puer\w*|F[iu]rmad\w*)", txt_visita2, re.IGNORECASE)
+            tipo_entrega = m2.group(1).strip() if m2 else ""
+
+        # Referencias / características
+        caracteristicas = _extraer_referencias(txt_visita2)
+
+        # Datos del firmante (bajo firma)
+        dni, nombre, apellido, tipo_vinculo = "", "", "", ""
+        if tipo == "bajo_firma":
+            dni, nombre, apellido, tipo_vinculo = self._datos_firmante(txt_visita1)
+
+        # Firma digitalizada
         tiene_firma = False
         if tipo == "bajo_firma" and pdf_processor:
-            tiene_firma = pdf_processor.tiene_firma_en_region(ruta_pdf, self.REGION_FIRMA)
-
-        # Aclaración = nombre completo del firmante en documentos EMA
-        aclaracion = _valor_despues_de(texto, "Aclaración")
-        nombre, apellido = "", ""
-        if aclaracion:
-            partes = aclaracion.split(maxsplit=1)
-            nombre = partes[0] if partes else aclaracion
-            apellido = partes[1] if len(partes) > 1 else ""
+            tiene_firma = pdf_processor.tiene_firma_en_region(ruta_pdf, REG_FIRMA_IMG)
 
         return ExtractionResult(
             tipo_documento=tipo,
-            fecha_emision=_parsear_fecha(fecha_emision_raw),
+            fecha_emision=fecha_emision,
             visitas=visitas,
-            distribuidor=self._extraer_distribuidor(texto),
-            caracteristicas_casa=self._extraer_referencias(texto),
-            tipo_entrega=tipo_entrega_raw,
-            dni=_valor_despues_de(texto, "D.N.I"),
+            distribuidor=distribuidor,
+            caracteristicas_casa=caracteristicas,
+            tipo_entrega=tipo_entrega,
+            dni=dni,
             nombre=nombre,
             apellido=apellido,
-            tipo_vinculo=_valor_despues_de(texto, "Vínculo"),
+            tipo_vinculo=tipo_vinculo,
             tiene_firma=tiene_firma,
             texto_crudo=texto,
         )
