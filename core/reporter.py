@@ -1,7 +1,6 @@
 import os
-from datetime import datetime
 from typing import List
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from core.models import ResultadoAuditoria
 
@@ -18,33 +17,47 @@ BORDE = Border(
 )
 
 COLUMNAS = [
-    "Archivo", "Proveedor", "Región", "Tipo", "Resultado",
+    "Fecha Procesamiento", "Archivo", "Proveedor", "Región", "Tipo", "Resultado",
     "Fecha Emisión", "Visita 1", "Visita 2",
     "Distribuidor", "Característica 1", "Característica 2", "Característica 3",
     "Tipo Entrega", "DNI", "Nombre", "Apellido", "Tipo Vínculo", "Firma",
     "Errores",
 ]
 
+ANCHOS = [16, 30, 12, 10, 14, 12, 14, 14, 14, 25, 20, 20, 20, 14, 14, 16, 16, 14, 8, 50]
+
 
 def _formato_fecha(d):
     return d.strftime("%d/%m/%Y") if d else ""
 
 
-def generar_excel(resultados: List[ResultadoAuditoria], carpeta_salida: str) -> str:
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Auditoría"
-
-    # Encabezados
+def _crear_encabezados(ws):
     for col, nombre in enumerate(COLUMNAS, start=1):
         celda = ws.cell(row=1, column=col, value=nombre)
         celda.font = NEGRITA
         celda.fill = GRIS
         celda.alignment = Alignment(horizontal="center")
         celda.border = BORDE
+    for col, ancho in enumerate(ANCHOS, start=1):
+        ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = ancho
 
-    # Datos
-    for fila, r in enumerate(resultados, start=2):
+
+def actualizar_excel(resultados: List[ResultadoAuditoria], carpeta_salida: str, fecha_procesamiento: str) -> str:
+    os.makedirs(carpeta_salida, exist_ok=True)
+    ruta = os.path.join(carpeta_salida, "reporte.xlsx")
+
+    if os.path.exists(ruta):
+        wb = load_workbook(ruta)
+        ws = wb.active
+    else:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Auditoría"
+        _crear_encabezados(ws)
+
+    fila_inicio = ws.max_row + 1
+
+    for fila, r in enumerate(resultados, start=fila_inicio):
         e = r.extraccion
         visita1 = _formato_fecha(e.visitas[0].fecha) if len(e.visitas) > 0 else ""
         visita2 = _formato_fecha(e.visitas[1].fecha) if len(e.visitas) > 1 else ""
@@ -52,6 +65,7 @@ def generar_excel(resultados: List[ResultadoAuditoria], carpeta_salida: str) -> 
         errores_texto = "; ".join(f"{err.campo}: {err.mensaje}" for err in r.errores)
 
         valores = [
+            fecha_procesamiento,
             r.archivo,
             r.proveedor,
             r.region,
@@ -78,13 +92,5 @@ def generar_excel(resultados: List[ResultadoAuditoria], carpeta_salida: str) -> 
             celda.border = BORDE
             celda.alignment = Alignment(wrap_text=True)
 
-    # Ancho de columnas
-    anchos = [30, 12, 10, 14, 12, 14, 14, 14, 25, 20, 20, 20, 14, 14, 16, 16, 14, 8, 50]
-    for col, ancho in enumerate(anchos, start=1):
-        ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = ancho
-
-    os.makedirs(carpeta_salida, exist_ok=True)
-    nombre_archivo = f"auditoria_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    ruta = os.path.join(carpeta_salida, nombre_archivo)
     wb.save(ruta)
     return ruta

@@ -1,8 +1,10 @@
 import os
 import sys
+import shutil
 import argparse
+from datetime import datetime
 from core.pdf_processor import PDFProcessor
-from core.reporter import generar_excel
+from core.reporter import actualizar_excel
 import config
 
 PROVIDERS = {
@@ -22,15 +24,22 @@ def cargar_provider(proveedor: str, region: str):
     return getattr(modulo, clase)()
 
 
-def procesar(proveedor: str, region: str, carpeta_entrada: str, carpeta_salida: str):
+def procesar(proveedor: str, region: str, carpeta_entrada: str, carpeta_base_salida: str):
     provider = cargar_provider(proveedor, region)
     processor = PDFProcessor()
+
+    carpeta_salida = os.path.join(carpeta_base_salida, proveedor.upper())
+    carpeta_procesados = os.path.join(carpeta_salida, "procesados")
+    carpeta_errores = os.path.join(carpeta_salida, "errores")
+    os.makedirs(carpeta_procesados, exist_ok=True)
+    os.makedirs(carpeta_errores, exist_ok=True)
 
     pdfs = [f for f in os.listdir(carpeta_entrada) if f.lower().endswith(".pdf")]
     if not pdfs:
         print(f"[AVISO] No se encontraron PDFs en '{carpeta_entrada}'")
         return
 
+    fecha_ejecucion = datetime.now().strftime("%Y-%m-%d")
     print(f"Procesando {len(pdfs)} archivo(s) para {proveedor}/{region}...\n")
     resultados = []
 
@@ -46,11 +55,22 @@ def procesar(proveedor: str, region: str, carpeta_entrada: str, carpeta_salida: 
                 for err in resultado.errores:
                     print(f"       • {err.campo}: {err.mensaje}")
             resultados.append(resultado)
+
+            # Mover PDF a procesados/ o errores/ con fecha al frente
+            destino = carpeta_procesados if resultado.aprobado else carpeta_errores
+            nombre_base = f"{fecha_ejecucion}_{nombre}"
+            shutil.move(ruta, os.path.join(destino, nombre_base))
+
+            # Guardar texto OCR junto al PDF
+            nombre_txt = os.path.splitext(nombre_base)[0] + "_ocr.txt"
+            with open(os.path.join(destino, nombre_txt), "w", encoding="utf-8") as f:
+                f.write(texto)
+
         except Exception as ex:
             print(f"ERROR al procesar: {ex}")
 
-    ruta_excel = generar_excel(resultados, carpeta_salida)
-    print(f"\nReporte generado: {ruta_excel}")
+    ruta_excel = actualizar_excel(resultados, carpeta_salida, fecha_ejecucion)
+    print(f"\nReporte actualizado: {ruta_excel}")
 
 
 if __name__ == "__main__":
@@ -58,7 +78,7 @@ if __name__ == "__main__":
     parser.add_argument("--proveedor", default="EMA", help="Código del proveedor (ej: EMA)")
     parser.add_argument("--region", default="BAN", help="Código de región (ej: BAN)")
     parser.add_argument("--entrada", default=config.INPUT_FOLDER, help="Carpeta con los PDFs")
-    parser.add_argument("--salida", default=config.OUTPUT_FOLDER, help="Carpeta para el Excel")
+    parser.add_argument("--salida", default=config.OUTPUT_FOLDER, help="Carpeta base de salida")
     args = parser.parse_args()
 
     procesar(args.proveedor, args.region, args.entrada, args.salida)
