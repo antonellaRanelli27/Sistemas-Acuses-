@@ -24,19 +24,22 @@ def cargar_provider(proveedor: str, region: str):
     return getattr(modulo, clase)()
 
 
-def procesar(proveedor: str, region: str, carpeta_entrada: str, carpeta_base_salida: str):
+def procesar(proveedor: str, region: str):
     provider = cargar_provider(proveedor, region)
     processor = PDFProcessor()
 
-    carpeta_salida = os.path.join(carpeta_base_salida, proveedor.upper())
-    carpeta_procesados = os.path.join(carpeta_salida, "procesados")
-    carpeta_errores = os.path.join(carpeta_salida, "errores")
+    carpeta_proveedor = os.path.join(config.BASE_DIR, proveedor.upper())
+    carpeta_pendientes = os.path.join(carpeta_proveedor, "pendientes")
+    carpeta_procesados = os.path.join(carpeta_proveedor, "procesados")
+    carpeta_errores    = os.path.join(carpeta_proveedor, "errores")
+
+    os.makedirs(carpeta_pendientes, exist_ok=True)
     os.makedirs(carpeta_procesados, exist_ok=True)
     os.makedirs(carpeta_errores, exist_ok=True)
 
-    pdfs = [f for f in os.listdir(carpeta_entrada) if f.lower().endswith(".pdf")]
+    pdfs = [f for f in os.listdir(carpeta_pendientes) if f.lower().endswith(".pdf")]
     if not pdfs:
-        print(f"[AVISO] No se encontraron PDFs en '{carpeta_entrada}'")
+        print(f"[AVISO] No hay PDFs en '{carpeta_pendientes}'")
         return
 
     fecha_ejecucion = datetime.now().strftime("%Y-%m-%d")
@@ -44,7 +47,7 @@ def procesar(proveedor: str, region: str, carpeta_entrada: str, carpeta_base_sal
     resultados = []
 
     for nombre in pdfs:
-        ruta = os.path.join(carpeta_entrada, nombre)
+        ruta = os.path.join(carpeta_pendientes, nombre)
         print(f"  → {nombre}", end=" ", flush=True)
         try:
             texto = processor.extraer_texto(ruta)
@@ -69,16 +72,14 @@ def procesar(proveedor: str, region: str, carpeta_entrada: str, carpeta_base_sal
         except Exception as ex:
             print(f"ERROR al procesar: {ex}")
 
-    ruta_excel = actualizar_excel(resultados, carpeta_salida, fecha_ejecucion)
+    ruta_excel = actualizar_excel(resultados, carpeta_proveedor, fecha_ejecucion)
     print(f"\nReporte actualizado: {ruta_excel}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sistema de auditoría de acuses")
     parser.add_argument("--proveedor", default="EMA", help="Código del proveedor (ej: EMA)")
-    parser.add_argument("--region", default="BAN", help="Código de región (ej: BAN)")
-    parser.add_argument("--entrada", default=config.INPUT_FOLDER, help="Carpeta con los PDFs")
-    parser.add_argument("--salida", default=config.OUTPUT_FOLDER, help="Carpeta base de salida")
+    parser.add_argument("--region",    default="BAN", help="Código de región (ej: BAN)")
     args = parser.parse_args()
 
-    procesar(args.proveedor, args.region, args.entrada, args.salida)
+    procesar(args.proveedor, args.region)
