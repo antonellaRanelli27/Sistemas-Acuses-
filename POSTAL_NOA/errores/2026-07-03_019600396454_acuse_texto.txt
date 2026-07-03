@@ -1,0 +1,18 @@
+Remitente
+Destinatario
+CP - Localidad
+Domicilio
+Observaciones
+Entregado por:
+Fecha:
+Recibido por:
+Estado:
+NATURGY NOA
+VALDEZ, MATIASA
+4600       - SAN SALVADOR DE JUJUY
+CERRO ZAPLA E     00167  0
+hija
+26/05/2026 11:30
+argota beatriz  - 11207944
+*019600396454*
+00-Entregado Bajo Firma

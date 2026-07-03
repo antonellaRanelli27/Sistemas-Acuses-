@@ -1,0 +1,18 @@
+Remitente
+Destinatario
+CP - Localidad
+Domicilio
+Observaciones
+Entregado por:
+Fecha:
+Recibido por:
+Estado:
+NATURGY NOA
+REYNA, CELIA MARGARITA
+4600       - SAN SALVADOR DE JUJUY
+CARLOS GARDEL 1 0
+titular
+26/05/2026 11:27
+reyna celia  - 10008351
+*019600396441*
+00-Entregado Bajo Firma
