@@ -8,7 +8,8 @@ from core.reporter import actualizar_excel
 import config
 
 PROVIDERS = {
-    ("EMA", "BAN"): "providers.ema.ban.EMABANProvider",
+    ("EMA",        "BAN"): "providers.ema.ban.EMABANProvider",
+    ("POSTAL_NOA", "NOA"): "providers.postal_noa.provider.PostalNOAProvider",
 }
 
 
@@ -50,7 +51,7 @@ def procesar(proveedor: str, region: str):
         ruta = os.path.join(carpeta_pendientes, nombre)
         print(f"  → {nombre}", end=" ", flush=True)
         try:
-            texto = processor.extraer_texto(ruta)
+            texto = provider.obtener_texto(ruta, processor)
             resultado = provider.procesar(nombre, texto, ruta, processor)
             estado = "APROBADO ✓" if resultado.aprobado else f"RECHAZADO ({len(resultado.errores)} error/es)"
             print(estado)
@@ -64,8 +65,8 @@ def procesar(proveedor: str, region: str):
             nombre_base = f"{fecha_ejecucion}_{nombre}"
             shutil.move(ruta, os.path.join(destino, nombre_base))
 
-            # Guardar texto OCR junto al PDF
-            nombre_txt = os.path.splitext(nombre_base)[0] + "_ocr.txt"
+            # Guardar texto extraído junto al PDF
+            nombre_txt = os.path.splitext(nombre_base)[0] + "_texto.txt"
             with open(os.path.join(destino, nombre_txt), "w", encoding="utf-8") as f:
                 f.write(texto)
 
@@ -78,8 +79,8 @@ def procesar(proveedor: str, region: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sistema de auditoría de acuses")
-    parser.add_argument("--proveedor", default="EMA", help="Código del proveedor (ej: EMA)")
-    parser.add_argument("--region",    default="BAN", help="Código de región (ej: BAN)")
+    parser.add_argument("--proveedor", default="EMA",  help="Código del proveedor (ej: EMA, POSTAL_NOA)")
+    parser.add_argument("--region",    default="BAN",  help="Código de región (ej: BAN, NOA)")
     args = parser.parse_args()
 
     procesar(args.proveedor, args.region)

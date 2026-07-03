@@ -24,6 +24,10 @@ class BaseProvider(ABC):
         """Devuelve una lista de ErrorValidacion."""
         pass
 
+    def obtener_texto(self, ruta_pdf: str, pdf_processor) -> str:
+        """Extrae el texto del PDF. Por defecto usa OCR; sobreescribir para PDF con capa de texto."""
+        return pdf_processor.extraer_texto(ruta_pdf)
+
     def procesar(self, archivo: str, texto: str, ruta_pdf: str) -> ResultadoAuditoria:
         extraccion = self.extraer(texto, ruta_pdf)
         errores = self.validar(extraccion)
