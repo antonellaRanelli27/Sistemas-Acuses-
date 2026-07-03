@@ -1,5 +1,6 @@
 import re
-import pdfplumber
+import fitz  # pymupdf
+import numpy as np
 from datetime import date
 from typing import Optional, List, Tuple
 from core.models import ExtractionResult, VisitData
@@ -21,7 +22,7 @@ FEATURE_NOUNS = re.compile(
 )
 
 # Región de firma en el documento (x1%, y1%, x2%, y2%)
-REG_FIRMA = (0.33, 0.48, 0.63, 0.82)
+REG_FIRMA = (0.48, 0.55, 0.65, 0.90)
 
 
 def _parsear_fecha(texto: str) -> Optional[date]:
@@ -41,10 +42,24 @@ class PostalNOAExtractor:
     def leer_pdf(self, ruta_pdf: str) -> str:
         """Extrae texto directamente de la capa de texto del PDF."""
         try:
-            with pdfplumber.open(ruta_pdf) as pdf:
-                return "\n".join(page.extract_text() or "" for page in pdf.pages)
+            doc = fitz.open(ruta_pdf)
+            return "\n".join(page.get_text() for page in doc)
         except Exception:
             return ""
+
+    def _detectar_firma(self, ruta_pdf: str, region: tuple) -> bool:
+        """Detecta firma por densidad de píxeles oscuros en la región indicada usando fitz."""
+        try:
+            doc = fitz.open(ruta_pdf)
+            page = doc[0]
+            r = page.rect
+            x1, y1, x2, y2 = region
+            clip = fitz.Rect(x1 * r.width, y1 * r.height, x2 * r.width, y2 * r.height)
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), clip=clip, colorspace=fitz.csGRAY)
+            arr = np.frombuffer(pix.samples, dtype=np.uint8)
+            return np.sum(arr < 100) / len(arr) > 0.02
+        except Exception:
+            return False
 
     def _detectar_tipo(self, texto: str) -> Optional[str]:
         if re.search(r'Bajo\s+Firma', texto, re.IGNORECASE):
@@ -54,11 +69,9 @@ class PostalNOAExtractor:
         return None
 
     def _extraer_fecha_entrega(self, texto: str) -> Optional[date]:
-        # Buscar "Fecha: DD/MM/YYYY"
-        m = re.search(r'Fecha:\s*(\d{1,2}/\d{1,2}/\d{4})', texto, re.IGNORECASE)
-        if m:
-            return _parsear_fecha(m.group(1))
-        # Buscar fecha con hora que NO está seguida de ":" (las notas tienen "HH:MM: No responde...")
+        # Las etiquetas y valores están en columnas separadas, así que "Fecha:" no está
+        # en la misma línea que el valor. Buscamos fecha+hora que NO esté seguida de ":"
+        # (las notas de primera visita tienen "HH:MM: No responde...")
         fechas = re.findall(r'(\d{1,2}/\d{1,2}/\d{4})\s+\d{1,2}:\d{2}(?!\s*:)', texto)
         return _parsear_fecha(fechas[0]) if fechas else None
 
@@ -75,9 +88,12 @@ class PostalNOAExtractor:
         return m.group(1).capitalize() if m else ""
 
     def _extraer_recibido_por(self, texto: str) -> Tuple[str, str, str]:
-        """Retorna (nombre, apellido, dni) del campo Recibido por."""
+        """Retorna (nombre, apellido, dni).
+        El campo 'Recibido por:' está en la columna de etiquetas y el valor
+        en la columna de valores, por eso buscamos el patrón 'nombre - DNI' directamente.
+        """
         m = re.search(
-            r'Recibido\s+por:\s*([a-záéíóúñ]+(?:\s+[a-záéíóúñ]+)*)\s*-\s*(\d{7,9})',
+            r'([a-záéíóúñ]+(?:\s+[a-záéíóúñ]+)+)\s{1,5}-\s{1,5}(\d{7,9})',
             texto, re.IGNORECASE,
         )
         if m:
@@ -130,8 +146,7 @@ class PostalNOAExtractor:
         if tipo == "bajo_firma":
             vinculo = self._extraer_vinculo(texto_pdf)
             nombre, apellido, dni = self._extraer_recibido_por(texto_pdf)
-            if pdf_processor:
-                tiene_firma = pdf_processor.tiene_firma_en_region(ruta_pdf, REG_FIRMA)
+            tiene_firma = self._detectar_firma(ruta_pdf, REG_FIRMA)
         elif tipo == "bajo_puerta":
             caracteristicas = self._extraer_caracteristicas(texto_pdf)
 
