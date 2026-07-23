@@ -110,21 +110,39 @@ class EMABANExtractor:
             return "bajo_firma"
         return None
 
-    def _fechas_de_visitas(self, txt_header: str) -> List[Optional[date]]:
+    def _fechas_de_visitas(self, txt_header: str, fecha_emision=None) -> List[Optional[date]]:
         """
-        Busca TODAS las ocurrencias de 'VISITA' en el header y extrae
-        la primera fecha que aparece después de cada una.
+        Busca la línea con encabezados VISITA y extrae las fechas que siguen.
+        Fallback: cuando el OCR garble la fecha, extrae el día del patrón [-—]DD
+        y usa el año/mes de la fecha de emisión.
         """
         lineas = txt_header.splitlines()
-        fechas = []
         for i, linea in enumerate(lineas):
-            if re.search(r"\bVISITA\b", linea, re.IGNORECASE):
-                for j in range(i + 1, min(i + 6, len(lineas))):
-                    f = _parsear_fecha(lineas[j])
-                    if f:
-                        fechas.append(f)
+            if not re.search(r"\bVISITA\b", linea, re.IGNORECASE):
+                continue
+            n_visitas = len(re.findall(r"\bVISITA\b", linea, re.IGNORECASE))
+            found = []
+            for j in range(i + 1, min(i + 6, len(lineas))):
+                f = _parsear_fecha(lineas[j])
+                if f:
+                    found.append(f)
+                    if len(found) >= n_visitas:
                         break
-        return fechas
+            # Fallback: el día sobrevive como [-—]DD cuando el OCR garble el resto.
+            # Solo aplica a líneas donde _parsear_fecha ya falló (evita doble-parseo).
+            if len(found) < n_visitas and fecha_emision:
+                for j in range(i + 1, min(i + 4, len(lineas))):
+                    if _parsear_fecha(lineas[j]):
+                        continue  # línea ya tiene fecha completa, saltar
+                    for dia_str in re.findall(r'[-—](\d{1,2})(?!\d)', lineas[j]):
+                        dia = int(dia_str)
+                        if 1 <= dia <= 31 and len(found) < n_visitas:
+                            try:
+                                found.append(date(fecha_emision.year, fecha_emision.month, dia))
+                            except ValueError:
+                                pass
+            return found
+        return []
 
     def _distribuidor(self, txt_visita1: str) -> str:
         m = re.search(r"\d{4,}\s*[-–]\s*[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑA-Za-z ]+", txt_visita1)
@@ -189,7 +207,7 @@ class EMABANExtractor:
         fecha_emision = _parsear_fecha(m.group(1)) if m else None
 
         # Fechas de visitas (línea posterior al encabezado VISITA en el header)
-        fechas_visitas = self._fechas_de_visitas(txt_header)
+        fechas_visitas = self._fechas_de_visitas(txt_header, fecha_emision)
 
         visita1 = VisitData(
             fecha=fechas_visitas[0] if len(fechas_visitas) > 0 else None,
