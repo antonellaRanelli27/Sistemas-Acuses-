@@ -110,12 +110,18 @@ class EMABANExtractor:
             return "bajo_firma"
         return None
 
+    def _fecha_plausible(self, f: date, fecha_emision: date) -> bool:
+        """Una fecha de visita es plausible si está dentro de ±365 días de la emisión."""
+        return abs((f - fecha_emision).days) <= 365
+
     def _fechas_de_visitas(self, txt_header: str, fecha_emision=None) -> List[Optional[date]]:
         """
         Busca la línea con encabezados VISITA y extrae las fechas que siguen.
-        Fallback: cuando el OCR garble la fecha, extrae el día del patrón [-—]DD
-        y usa el año/mes de la fecha de emisión.
+        Maneja dos tipos de garble de OCR:
+          - Texto irreconocible: usa patrón [-—]DD para extraer el día
+          - Fecha con año truncado: p.ej. '26/04/13' → year=2013 → extrae '13' de '\b20(DD)\b'
         """
+        from datetime import timedelta
         lineas = txt_header.splitlines()
         for i, linea in enumerate(lineas):
             if not re.search(r"\bVISITA\b", linea, re.IGNORECASE):
@@ -125,22 +131,40 @@ class EMABANExtractor:
             for j in range(i + 1, min(i + 6, len(lineas))):
                 f = _parsear_fecha(lineas[j])
                 if f:
+                    if fecha_emision and not self._fecha_plausible(f, fecha_emision):
+                        continue  # año incorrecto (OCR garble), ignorar
                     found.append(f)
                     if len(found) >= n_visitas:
                         break
-            # Fallback: el día sobrevive como [-—]DD cuando el OCR garble el resto.
-            # Solo aplica a líneas donde _parsear_fecha ya falló (evita doble-parseo).
+            # Fallback: reconstruye el día cuando el OCR garble la fecha
             if len(found) < n_visitas and fecha_emision:
                 for j in range(i + 1, min(i + 4, len(lineas))):
-                    if _parsear_fecha(lineas[j]):
-                        continue  # línea ya tiene fecha completa, saltar
-                    for dia_str in re.findall(r'[-—](\d{1,2})(?!\d)', lineas[j]):
-                        dia = int(dia_str)
-                        if 1 <= dia <= 31 and len(found) < n_visitas:
-                            try:
-                                found.append(date(fecha_emision.year, fecha_emision.month, dia))
-                            except ValueError:
-                                pass
+                    f = _parsear_fecha(lineas[j])
+                    # Saltar líneas con fecha plausible ya procesada
+                    if f and self._fecha_plausible(f, fecha_emision):
+                        continue
+                    candidatos = set()
+                    # Día después de guion/raya (e.g., '—13' → 13)
+                    for m in re.findall(r'[-—](\d{1,2})(?!\d)', lineas[j]):
+                        candidatos.add(int(m))
+                    # Últimos 2 dígitos de año 4-cifras garbled (e.g., '2013' → 13)
+                    for m in re.findall(r'\b20(\d{2})\b', lineas[j]):
+                        candidatos.add(int(m))
+                    # Componente "año" de fecha garbled DD/MM/YY (e.g., '26/04/13' → 13)
+                    for m in re.findall(r'\d{1,2}[/\.]\d{1,2}[/\.](\d{2})(?!\d)', lineas[j]):
+                        candidatos.add(int(m))
+                    # Tomar días >= día de emisión (visita nunca antes de emitir la boleta)
+                    for dia in sorted(candidatos):
+                        if len(found) >= n_visitas:
+                            break
+                        if not (1 <= dia <= 31):
+                            continue
+                        try:
+                            f_cand = date(fecha_emision.year, fecha_emision.month, dia)
+                            if f_cand >= fecha_emision - timedelta(days=3):
+                                found.append(f_cand)
+                        except ValueError:
+                            pass
             return found
         return []
 
