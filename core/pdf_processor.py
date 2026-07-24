@@ -11,7 +11,6 @@ class PDFProcessor:
     def __init__(self):
         pytesseract.pytesseract.tesseract_cmd = config.TESSERACT_CMD
         self._cache: dict = {}
-        self._fitz_cache: dict = {}
 
     def _obtener_imagenes(self, ruta_pdf: str) -> list:
         if ruta_pdf not in self._cache:
@@ -22,11 +21,6 @@ class PDFProcessor:
             )
         return self._cache[ruta_pdf]
 
-    def _obtener_doc_fitz(self, ruta_pdf: str):
-        if ruta_pdf not in self._fitz_cache:
-            self._fitz_cache[ruta_pdf] = fitz.open(ruta_pdf)
-        return self._fitz_cache[ruta_pdf]
-
     def _preprocesar(self, imagen: Image.Image) -> Image.Image:
         img_np = np.array(imagen)
         gris = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
@@ -34,17 +28,23 @@ class PDFProcessor:
         return Image.fromarray(binaria)
 
     def _extraer_texto_fitz(self, ruta_pdf: str) -> str:
-        """Extrae texto digital embebido con pymupdf (sin OCR)."""
+        """Extrae texto digital embebido con pymupdf (sin OCR).
+        Abre y cierra el documento para liberar el handle en Windows."""
+        doc = None
         try:
-            doc = self._obtener_doc_fitz(ruta_pdf)
+            doc = fitz.open(ruta_pdf)
             return "\n".join(page.get_text() for page in doc)
         except Exception:
             return ""
+        finally:
+            if doc:
+                doc.close()
 
     def _extraer_texto_region_fitz(self, ruta_pdf: str, region: tuple, pagina: int = 0) -> str:
         """Extrae texto digital de una región usando pymupdf."""
+        doc = None
         try:
-            doc = self._obtener_doc_fitz(ruta_pdf)
+            doc = fitz.open(ruta_pdf)
             if pagina >= len(doc):
                 return ""
             page = doc[pagina]
@@ -55,6 +55,9 @@ class PDFProcessor:
             return page.get_text(clip=clip)
         except Exception:
             return ""
+        finally:
+            if doc:
+                doc.close()
 
     def extraer_texto(self, ruta_pdf: str) -> str:
         """Extrae texto completo: intenta pymupdf primero, OCR como fallback."""

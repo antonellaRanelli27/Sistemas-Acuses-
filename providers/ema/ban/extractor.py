@@ -136,33 +136,38 @@ class EMABANExtractor:
                     found.append(f)
                     if len(found) >= n_visitas:
                         break
-            # Fallback: reconstruye el día cuando el OCR garble la fecha
+            # Fallback: reconstruye días faltantes cuando el OCR garble la fecha
             if len(found) < n_visitas and fecha_emision:
+                found_days = {f.day for f in found}
                 for j in range(i + 1, min(i + 4, len(lineas))):
+                    if len(found) >= n_visitas:
+                        break
                     f = _parsear_fecha(lineas[j])
-                    # Saltar líneas con fecha plausible ya procesada
-                    if f and self._fecha_plausible(f, fecha_emision):
-                        continue
-                    candidatos = set()
-                    # Día después de guion/raya (e.g., '—13' → 13)
-                    for m in re.findall(r'[-—](\d{1,2})(?!\d)', lineas[j]):
-                        candidatos.add(int(m))
-                    # Últimos 2 dígitos de año 4-cifras garbled (e.g., '2013' → 13)
-                    for m in re.findall(r'\b20(\d{2})\b', lineas[j]):
-                        candidatos.add(int(m))
-                    # Componente "año" de fecha garbled DD/MM/YY (e.g., '26/04/13' → 13)
+                    linea_plausible = f is not None and self._fecha_plausible(f, fecha_emision)
+                    candidatos: set = set()
+
+                    # Patrón 3: año YY de DD/MM/YY → seguro incluso en líneas con fecha limpia
+                    # (los separadores / no aparecen en fechas ISO 2026-04-13)
                     for m in re.findall(r'\d{1,2}[/\.]\d{1,2}[/\.](\d{2})(?!\d)', lineas[j]):
                         candidatos.add(int(m))
-                    # Tomar días >= día de emisión (visita nunca antes de emitir la boleta)
+
+                    # Patrones 1 y 2: solo para líneas con fecha garbled (evitan falsos positivos)
+                    if not linea_plausible:
+                        for m in re.findall(r'[-—](\d{1,2})(?!\d)', lineas[j]):
+                            candidatos.add(int(m))
+                        for m in re.findall(r'\b20(\d{2})\b', lineas[j]):
+                            candidatos.add(int(m))
+
                     for dia in sorted(candidatos):
                         if len(found) >= n_visitas:
                             break
-                        if not (1 <= dia <= 31):
+                        if not (1 <= dia <= 31) or dia in found_days:
                             continue
                         try:
                             f_cand = date(fecha_emision.year, fecha_emision.month, dia)
                             if f_cand >= fecha_emision - timedelta(days=3):
                                 found.append(f_cand)
+                                found_days.add(dia)
                         except ValueError:
                             pass
             return found
