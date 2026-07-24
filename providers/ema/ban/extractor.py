@@ -51,7 +51,8 @@ REG_FIRMA_IMG = (0.48, 0.55, 1.00, 0.78)  # Imagen de la firma digitalizada
 
 
 def _parsear_fecha(texto: str) -> Optional[date]:
-    m = re.search(r"(\d{4})-(\d{2})-(\d{2})", texto)
+    # YYYY-MM-DD o YYYY.MM.DD
+    m = re.search(r"(\d{4})[-.](\d{2})[-.](\d{2})", texto)
     if m:
         try:
             return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
@@ -116,42 +117,62 @@ class EMABANExtractor:
 
     def _fechas_de_visitas(self, txt_header: str, fecha_emision=None) -> List[Optional[date]]:
         """
-        Busca la línea con encabezados VISITA y extrae las fechas que siguen.
-        Maneja dos tipos de garble de OCR:
-          - Texto irreconocible: usa patrón [-—]DD para extraer el día
-          - Fecha con año truncado: p.ej. '26/04/13' → year=2013 → extrae '13' de '\b20(DD)\b'
+        Busca todas las líneas con VISITA y extrae la fecha que sigue a cada una.
+        Maneja tanto el caso donde las visitas están en una sola línea ("1 VISITA 2 VISITA")
+        como cuando están en líneas separadas ("1 VISITA" ... "2* VISITA").
+        Fallback para OCR garble:
+          - Patrón 1: [-—]DD → día
+          - Patrón 2: \b20(DD)\b → año truncado
+          - Patrón 3: DD/MM/YY → extrae YY como día candidato
         """
         from datetime import timedelta
         lineas = txt_header.splitlines()
+        found = []
+        found_days: set = set()
+
         for i, linea in enumerate(lineas):
             if not re.search(r"\bVISITA\b", linea, re.IGNORECASE):
+                n_visitas_en_linea = 0
+            else:
+                n_visitas_en_linea = len(re.findall(r"\bVISITA\b", linea, re.IGNORECASE))
+
+            if n_visitas_en_linea == 0:
                 continue
-            n_visitas = len(re.findall(r"\bVISITA\b", linea, re.IGNORECASE))
-            found = []
-            for j in range(i + 1, min(i + 6, len(lineas))):
+
+            # Cuántas fechas esperamos encontrar en el bloque de esta línea VISITA
+            fechas_esperadas = n_visitas_en_linea
+
+            # Buscar fechas en las líneas siguientes hasta la próxima cabecera VISITA
+            fechas_bloque: list = []
+            for j in range(i + 1, min(i + 8, len(lineas))):
+                if re.search(r"\bVISITA\b", lineas[j], re.IGNORECASE):
+                    break  # no cruzar al siguiente bloque
                 f = _parsear_fecha(lineas[j])
-                if f:
-                    if fecha_emision and not self._fecha_plausible(f, fecha_emision):
-                        continue  # año incorrecto (OCR garble), ignorar
-                    found.append(f)
-                    if len(found) >= n_visitas:
+                if f and (fecha_emision is None or self._fecha_plausible(f, fecha_emision)):
+                    if f.day not in found_days:
+                        fechas_bloque.append(f)
+                        found_days.add(f.day)
+                    if len(fechas_bloque) >= fechas_esperadas:
                         break
-            # Fallback: reconstruye días faltantes cuando el OCR garble la fecha
-            if len(found) < n_visitas and fecha_emision:
-                found_days = {f.day for f in found}
-                for j in range(i + 1, min(i + 4, len(lineas))):
-                    if len(found) >= n_visitas:
+
+            found.extend(fechas_bloque)
+
+            # Fallback: si no encontramos todas las fechas esperadas, intentar reconstruir
+            if len(fechas_bloque) < fechas_esperadas and fecha_emision:
+                for j in range(i + 1, min(i + 6, len(lineas))):
+                    if len(fechas_bloque) >= fechas_esperadas:
+                        break
+                    if re.search(r"\bVISITA\b", lineas[j], re.IGNORECASE):
                         break
                     f = _parsear_fecha(lineas[j])
                     linea_plausible = f is not None and self._fecha_plausible(f, fecha_emision)
                     candidatos: set = set()
 
-                    # Patrón 3: año YY de DD/MM/YY → seguro incluso en líneas con fecha limpia
-                    # (los separadores / no aparecen en fechas ISO 2026-04-13)
+                    # Patrón 3: año YY de DD/MM/YY (seguro para líneas limpias también)
                     for m in re.findall(r'\d{1,2}[/\.]\d{1,2}[/\.](\d{2})(?!\d)', lineas[j]):
                         candidatos.add(int(m))
 
-                    # Patrones 1 y 2: solo para líneas con fecha garbled (evitan falsos positivos)
+                    # Patrones 1 y 2: solo para líneas con fecha garbled
                     if not linea_plausible:
                         for m in re.findall(r'[-—](\d{1,2})(?!\d)', lineas[j]):
                             candidatos.add(int(m))
@@ -159,19 +180,20 @@ class EMABANExtractor:
                             candidatos.add(int(m))
 
                     for dia in sorted(candidatos):
-                        if len(found) >= n_visitas:
+                        if len(fechas_bloque) >= fechas_esperadas:
                             break
                         if not (1 <= dia <= 31) or dia in found_days:
                             continue
                         try:
                             f_cand = date(fecha_emision.year, fecha_emision.month, dia)
                             if f_cand >= fecha_emision - timedelta(days=3):
+                                fechas_bloque.append(f_cand)
                                 found.append(f_cand)
                                 found_days.add(dia)
                         except ValueError:
                             pass
-            return found
-        return []
+
+        return found
 
     def _distribuidor(self, txt_visita1: str) -> str:
         m = re.search(r"\d{4,}\s*[-–]\s*[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑA-Za-z ]+", txt_visita1)
