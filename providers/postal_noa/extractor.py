@@ -41,14 +41,19 @@ class PostalNOAExtractor:
 
     def leer_pdf(self, ruta_pdf: str) -> str:
         """Extrae texto directamente de la capa de texto del PDF."""
+        doc = None
         try:
             doc = fitz.open(ruta_pdf)
             return "\n".join(page.get_text() for page in doc)
         except Exception:
             return ""
+        finally:
+            if doc:
+                doc.close()
 
     def _detectar_firma(self, ruta_pdf: str, region: tuple) -> bool:
         """Detecta firma por densidad de píxeles oscuros en la región indicada usando fitz."""
+        doc = None
         try:
             doc = fitz.open(ruta_pdf)
             page = doc[0]
@@ -60,6 +65,9 @@ class PostalNOAExtractor:
             return np.sum(arr < 100) / len(arr) > 0.02
         except Exception:
             return False
+        finally:
+            if doc:
+                doc.close()
 
     def _detectar_tipo(self, texto: str) -> Optional[str]:
         if re.search(r'Bajo\s+Firma', texto, re.IGNORECASE):
@@ -89,8 +97,7 @@ class PostalNOAExtractor:
 
     def _extraer_recibido_por(self, texto: str) -> Tuple[str, str, str]:
         """Retorna (nombre, apellido, dni).
-        El campo 'Recibido por:' está en la columna de etiquetas y el valor
-        en la columna de valores, por eso buscamos el patrón 'nombre - DNI' directamente.
+        El campo 'Recibido por' tiene formato 'apellido nombre - DNI'.
         """
         m = re.search(
             r'([a-záéíóúñ]+(?:\s+[a-záéíóúñ]+)+)\s{1,5}-\s{1,5}(\d{7,9})',
@@ -98,10 +105,20 @@ class PostalNOAExtractor:
         )
         if m:
             partes = m.group(1).strip().split()
-            nombre = partes[0] if partes else ""
-            apellido = " ".join(partes[1:]) if len(partes) > 1 else ""
+            apellido = partes[0].capitalize() if partes else ""
+            nombre = " ".join(p.capitalize() for p in partes[1:]) if len(partes) > 1 else ""
             return nombre, apellido, m.group(2).strip()
         return "", "", ""
+
+    def _extraer_destinatario(self, texto: str) -> str:
+        """
+        Extrae el nombre del destinatario del documento.
+        Formato en el PDF: 'APELLIDO, NOMBRE NOMBRE' en mayúsculas.
+        """
+        m = re.search(r'^([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ]+,\s+[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]+)$', texto, re.MULTILINE)
+        if m:
+            return m.group(1).strip()
+        return ""
 
     def _extraer_caracteristicas(self, texto: str) -> List[str]:
         """
@@ -127,6 +144,7 @@ class PostalNOAExtractor:
 
         tipo = self._detectar_tipo(texto_pdf)
         fecha_entrega = self._extraer_fecha_entrega(texto_pdf)
+        nombre_cliente = self._extraer_destinatario(texto_pdf)
 
         visitas: List[VisitData] = []
         if tipo == "bajo_puerta":
@@ -168,5 +186,6 @@ class PostalNOAExtractor:
             apellido=apellido,
             tipo_vinculo=vinculo,
             tiene_firma=tiene_firma,
+            nombre_cliente=nombre_cliente,
             texto_crudo=texto_pdf,
         )
