@@ -23,6 +23,7 @@ class ExtractionResult:
     apellido: Optional[str] = None
     tipo_vinculo: Optional[str] = None
     tiene_firma: bool = False
+    nombre_cliente: Optional[str] = None   # nombre del cliente extraído del encabezado
     texto_crudo: str = ""
 
 

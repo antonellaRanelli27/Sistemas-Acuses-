@@ -195,6 +195,22 @@ class EMABANExtractor:
 
         return found
 
+    def _nombre_cliente_header(self, txt_header: str) -> str:
+        """
+        Extrae el nombre completo del cliente del encabezado.
+        Aparece como línea en mayúsculas después de 'N* Cliente:' o 'N° Cliente:'.
+        """
+        lineas = [l.strip() for l in txt_header.splitlines()]
+        for i, l in enumerate(lineas):
+            if re.search(r"N[*°º]\s*Cliente", l, re.IGNORECASE):
+                for j in range(i + 1, min(i + 5, len(lineas))):
+                    candidato = lineas[j]
+                    if (candidato
+                            and not re.search(r"\d", candidato)
+                            and re.match(r"^[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑa-záéíóúñ ]+$", candidato)):
+                        return candidato
+        return ""
+
     def _distribuidor(self, txt_visita1: str) -> str:
         m = re.search(r"\d{4,}\s*[-–]\s*[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑA-Za-z ]+", txt_visita1)
         return m.group(0).strip() if m else ""
@@ -288,6 +304,9 @@ class EMABANExtractor:
         # Referencias / características
         caracteristicas = _extraer_referencias(txt_visita2)
 
+        # Nombre del cliente del encabezado
+        nombre_cliente = self._nombre_cliente_header(txt_header)
+
         # Datos del firmante (bajo firma)
         dni, nombre, apellido, tipo_vinculo = "", "", "", ""
         if tipo == "bajo_firma":
@@ -310,5 +329,6 @@ class EMABANExtractor:
             apellido=apellido,
             tipo_vinculo=tipo_vinculo,
             tiene_firma=tiene_firma,
+            nombre_cliente=nombre_cliente,
             texto_crudo=texto,
         )

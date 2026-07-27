@@ -106,6 +106,17 @@ class EMABANValidator:
         if not e.tiene_firma:
             errores.append(ErrorValidacion("Firma", "No se detectó firma digitalizada en el documento"))
 
+        # Aclaración vs. nombre del cliente del encabezado
+        if e.nombre_cliente and (e.nombre or e.apellido):
+            palabras_cliente = set(e.nombre_cliente.upper().split())
+            palabras_aclaracion = set(f"{e.nombre} {e.apellido}".upper().split())
+            if not palabras_aclaracion & palabras_cliente:
+                errores.append(ErrorValidacion(
+                    "Aclaración",
+                    f"Ninguna palabra de la aclaración ('{e.nombre} {e.apellido}') "
+                    f"coincide con el nombre del cliente ('{e.nombre_cliente}')"
+                ))
+
         return errores
 
     def validar(self, e: ExtractionResult) -> List[ErrorValidacion]:
