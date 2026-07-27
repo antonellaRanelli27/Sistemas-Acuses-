@@ -47,14 +47,15 @@ class PostalNOAValidator:
         if not e.tiene_firma:
             errores.append(ErrorValidacion("Firma", "No se detectó firma digitalizada en el documento"))
 
-        # Recibido por vs. nombre del destinatario
-        if e.nombre_cliente and (e.nombre or e.apellido):
+        # Si el vínculo es Titular, el receptor debe coincidir con el destinatario
+        if (e.tipo_vinculo and e.tipo_vinculo.lower() == "titular"
+                and e.nombre_cliente and (e.nombre or e.apellido)):
             palabras_cliente = {p.strip(',') for p in e.nombre_cliente.upper().split()}
             palabras_firmante = set(f"{e.nombre} {e.apellido}".upper().split())
             if not palabras_firmante & palabras_cliente:
                 errores.append(ErrorValidacion(
                     "Recibido por",
-                    f"Ninguna palabra de '{e.nombre} {e.apellido}' coincide con el destinatario ('{e.nombre_cliente}')"
+                    f"El vínculo es Titular pero '{e.nombre} {e.apellido}' no coincide con el destinatario ('{e.nombre_cliente}')"
                 ))
 
         return errores
