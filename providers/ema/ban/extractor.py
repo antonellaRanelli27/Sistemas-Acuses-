@@ -273,6 +273,10 @@ class EMABANExtractor:
         m = re.search(r"Emisi[oó]n[:\s]+(\d{4}-\d{2}-\d{2})", txt_header, re.IGNORECASE)
         fecha_emision = _parsear_fecha(m.group(1)) if m else None
 
+        # Fecha de vencimiento
+        m = re.search(r"vencimiento[:\s]+(\d{4}-\d{2}-\d{2})", txt_header, re.IGNORECASE)
+        fecha_vencimiento = _parsear_fecha(m.group(1)) if m else None
+
         # Fechas de visitas (línea posterior al encabezado VISITA en el header)
         fechas_visitas = self._fechas_de_visitas(txt_header, fecha_emision)
 
@@ -320,6 +324,7 @@ class EMABANExtractor:
         return ExtractionResult(
             tipo_documento=tipo,
             fecha_emision=fecha_emision,
+            fecha_vencimiento=fecha_vencimiento,
             visitas=visitas,
             distribuidor=distribuidor,
             caracteristicas_casa=caracteristicas,

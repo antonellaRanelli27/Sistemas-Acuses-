@@ -18,13 +18,13 @@ BORDE = Border(
 
 COLUMNAS = [
     "Fecha Procesamiento", "Archivo", "Proveedor", "Región", "Tipo", "Resultado",
-    "Fecha Emisión", "Visita 1", "Visita 2",
+    "Fecha Emisión", "Fecha Vencimiento", "Visita 1", "Visita 2",
     "Distribuidor", "Característica 1", "Característica 2", "Característica 3",
     "Tipo Entrega", "DNI", "Nombre", "Apellido", "Tipo Vínculo", "Firma",
     "Errores",
 ]
 
-ANCHOS = [16, 30, 12, 10, 14, 12, 14, 14, 14, 25, 20, 20, 20, 14, 14, 16, 16, 14, 8, 50]
+ANCHOS = [16, 30, 12, 10, 14, 12, 14, 16, 14, 14, 25, 20, 20, 20, 14, 14, 16, 16, 14, 8, 50]
 
 
 def _formato_fecha(d):
@@ -72,6 +72,7 @@ def actualizar_excel(resultados: List[ResultadoAuditoria], carpeta_salida: str, 
             r.tipo_documento or "",
             "APROBADO" if r.aprobado else "RECHAZADO",
             _formato_fecha(e.fecha_emision),
+            _formato_fecha(e.fecha_vencimiento),
             visita1,
             visita2,
             e.distribuidor or "",
