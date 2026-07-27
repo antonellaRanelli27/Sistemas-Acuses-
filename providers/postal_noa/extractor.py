@@ -8,11 +8,11 @@ from core.models import ExtractionResult, VisitData
 VINCULOS_VALIDOS = {
     "titular", "hijo", "hija", "esposo", "esposa",
     "padre", "madre", "cónyuge", "conyuge", "familiar",
-    "hermano", "hermana",
+    "hermano", "hermana", "portero", "encargado",
 }
 
 VINCULOS_PATTERN = re.compile(
-    r'\b(titular|hijo|hija|esposo|esposa|padre|madre|cónyuge|conyuge|familiar|hermano|hermana)\b',
+    r'\b(titular|hijo|hija|esposo|esposa|padre|madre|cónyuge|conyuge|familiar|hermano|hermana|portero|encargado)\b',
     re.IGNORECASE,
 )
 
